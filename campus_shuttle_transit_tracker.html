@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CampusTransit — Live Shuttle & Route Tracker</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono for crisp tabular countdowns -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome for crisp transit icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#151e2e',
+              900: '#0f172a',
+              950: '#090d16',
+            },
+            routeRed: '#ef4444',
+            routeBlue: '#3b82f6',
+            routeGold: '#f59e0b',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar for sleek transit app feel */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(71, 85, 105, 0.7);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 116, 139, 0.9);
+    }
+
+    /* Pulsing radar animation for user location & arriving buses */
+    @keyframes radarPulse {
+      0% {
+        transform: scale(0.8);
+        opacity: 0.85;
+      }
+      100% {
+        transform: scale(2.4);
+        opacity: 0;
+      }
+    }
+
+    .radar-ring {
+      transform-origin: center;
+      transform-box: fill-box;
+      animation: radarPulse 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+    }
+
+    /* Live indicator dot pulse */
+    @keyframes liveBlink {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .live-dot {
+      animation: liveBlink 1.5s infinite ease-in-out;
+    }
+
+    /* Smooth SVG route path glow & dash animation */
+    .route-path-flow {
+      stroke-dasharray: 10, 14;
+      animation: dashFlow 30s linear infinite;
+    }
+    @keyframes dashFlow {
+      to {
+        stroke-dashoffset: -480;
+      }
+    }
+
+    /* Stop marker hover & active transitions */
+    .stop-node {
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transform-origin: center;
+      transform-box: fill-box;
+    }
+    .stop-node:hover {
+      transform: scale(1.22);
+    }
+    .stop-node.active-stop {
+      transform: scale(1.3);
+    }
+
+    /* Bus marker smooth transition */
+    .bus-marker-group {
+      cursor: pointer;
+      transition: filter 0.2s ease;
+    }
+    .bus-marker-group:hover {
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+    }
+
+    /* Hide scrollbar on horizontal pills while keeping scroll functionality */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-blue-500 selection:text-white overflow-x-hidden flex flex-col min-h-screen lg:h-screen lg:overflow-hidden">
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3 z-30 shrink-0">
+    <!-- Brand & Campus Status -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 border border-blue-400/20">
+        <i class="fa-solid fa-bus-simple text-white text-lg"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-extrabold text-base sm:text-lg tracking-tight text-white">Campus<span class="text-blue-400">Transit</span></h1>
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot"></span>
+            LIVE GPS
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 hidden sm:block">State University Shuttle Network • Fall Semester</p>
+      </div>
+    </div>
+
+    <!-- Live Campus Clock & Simulation Speed Controls -->
+    <div class="flex items-center gap-2 sm:gap-3 ml-auto">
+      <!-- Simulation Speed & Pause Controls -->
+      <div class="flex items-center bg-slate-850 border border-slate-700/80 rounded-xl p-1 shadow-inner" title="Simulation Speed Controls">
+        <button id="btnPausePlay" onclick="toggleSimulation()" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-200 hover:bg-slate-700/70 transition flex items-center gap-1.5" aria-label="Pause or Resume Simulation">
+          <i id="pausePlayIcon" class="fa-solid fa-pause text-amber-400"></i>
+          <span class="hidden md:inline" id="pausePlayText">Live</span>
+        </button>
+        <div class="h-4 w-[1px] bg-slate-700 mx-1"></div>
+        <button id="btnSpeed1x" onclick="setSimSpeed(1)" class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition bg-blue-600 text-white shadow-sm">
+          1x
+        </button>
+        <button id="btnSpeed10x" onclick="setSimSpeed(10)" class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition text-slate-400 hover:text-white">
+          10x Demo
+        </button>
+      </div>
+
+      <!-- Digital Campus Clock -->
+      <div class="bg-slate-850 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-sm">
+        <i class="fa-regular fa-clock text-blue-400 text-xs"></i>
+        <span id="liveClock" class="font-mono text-xs sm:text-sm font-bold text-slate-100 tracking-wider">02:39:00 PM</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE: SPLIT VIEW (MAP LEFT/TOP, SCHEDULE PANEL RIGHT/BOTTOM) -->
+  <main class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+    
+    <!-- LEFT / TOP SECTION: INTERACTIVE SVG CAMPUS MAP -->
+    <section class="relative w-full lg:w-[60%] xl:w-[64%] h-[50vh] min-h-[370px] lg:h-full bg-slate-950 flex flex-col overflow-hidden border-b lg:border-b-0 lg:border-r border-slate-800">
+      
+      <!-- Floating Top Map Overlay: Route Filter Pills -->
+      <div class="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <!-- Route Pills -->
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pointer-events-auto bg-slate-900/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800 shadow-xl max-w-full">
+          <button onclick="selectRoute('all')" data-route="all" class="route-pill active px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-100 text-slate-950 shadow">
+            <span>All Lines</span>
+            <span class="px-1.5 py-0.2 bg-slate-800 text-slate-200 rounded-md text-[10px]">6</span>
+          </button>
+          <button onclick="selectRoute('red')" data-route="red" class="route-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap text-slate-300 hover:bg-slate-800">
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]"></span>
+            <span>Red Express</span>
+          </button>
+          <button onclick="selectRoute('blue')" data-route="blue" class="route-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap text-slate-300 hover:bg-slate-800">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]"></span>
+            <span>Blue N/S</span>
+          </button>
+          <button onclick="selectRoute('gold')" data-route="gold" class="route-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap text-slate-300 hover:bg-slate-800">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"></span>
+            <span>Gold SafeRide</span>
+          </button>
+        </div>
+
+        <!-- Find Nearest Stop Quick Action -->
+        <button onclick="findNearestStop()" class="pointer-events-auto bg-slate-900/90 hover:bg-blue-600 text-slate-100 hover:text-white backdrop-blur-md border border-slate-700 hover:border-blue-400 px-3 py-2 rounded-2xl text-xs font-bold shadow-xl transition flex items-center gap-2 group">
+          <i class="fa-solid fa-location-crosshairs text-blue-400 group-hover:text-white transition"></i>
+          <span>Nearest Stop</span>
+        </button>
+      </div>
+
+      <!-- Floating Bus Info Popup Card (Appears when clicking any moving shuttle on map) -->
+      <div id="busDetailPopup" class="hidden absolute bottom-14 left-3 sm:left-4 z-20 w-72 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl p-3.5 shadow-2xl transition-all">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span id="popupBusBadge" class="px-2 py-0.5 rounded-md text-xs font-extrabold uppercase tracking-wide bg-red-500 text-white">RED-101</span>
+            <span id="popupBusRouteName" class="text-xs font-semibold text-slate-300">Express Loop</span>
+          </div>
+          <button onclick="closeBusPopup()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition" aria-label="Close Bus Info">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="flex justify-between items-center bg-slate-850 px-2.5 py-1.5 rounded-xl border border-slate-800">
+            <span class="text-slate-400">Next Stop:</span>
+            <span id="popupNextStop" class="font-bold text-white truncate max-w-[140px]">Main Library</span>
+          </div>
+          <div class="flex justify-between items-center bg-slate-850 px-2.5 py-1.5 rounded-xl border border-slate-800">
+            <span class="text-slate-400">Est. Arrival:</span>
+            <span id="popupEta" class="font-mono font-bold text-emerald-400">1m 45s</span>
+          </div>
+          <div>
+            <div class="flex justify-between text-[11px] mb-1">
+              <span class="text-slate-400">Passenger Load</span>
+              <span id="popupLoadText" class="font-semibold text-amber-400">62% (Seats Open)</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="popupLoadBar" class="h-full bg-amber-400 rounded-full transition-all duration-300" style="width: 62%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INTERACTIVE CAMPUS SVG MAP -->
+      <div class="w-full h-full flex items-center justify-center p-2 sm:p-4 select-none relative" id="mapContainer">
+        <svg id="campusSvg" viewBox="0 0 900 620" class="w-full h-full max-h-full rounded-2xl bg-[#0b111e] border border-slate-800/90 shadow-inner" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <!-- Subtle Grid Pattern -->
+            <pattern id="campusGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6" stroke-opacity="0.45"/>
+            </pattern>
+            
+            <!-- Building Drop Shadow -->
+            <filter id="bldgShadow" x="-10%" y="-10%" width="120%" height="120%">
+              <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#020617" flood-opacity="0.65"/>
+            </filter>
+
+            <!-- Active Stop Glow -->
+            <filter id="stopGlow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          </defs>
+
+          <!-- Background Base & Grid -->
+          <rect width="900" height="620" fill="#0b111e" />
+          <rect width="900" height="620" fill="url(#campusGrid)" />
+
+          <!-- CAMPUS GEOGRAPHY: GREEN QUADS, LAKE & WALKWAYS -->
+          <!-- Central Academic Quad -->
+          <rect x="290" y="195" width="320" height="210" rx="28" fill="#0f2922" stroke="#134e3a" stroke-width="1.5" opacity="0.85" />
+          <text x="450" y="305" text-anchor="middle" fill="#2dd4bf" fill-opacity="0.22" font-size="14" font-weight="800" letter-spacing="3">CENTRAL ACADEMIC QUAD</text>
+
+          <!-- North Residential Park -->
+          <path d="M 160 40 Q 450 20 740 40 L 710 130 Q 450 115 190 130 Z" fill="#0f2922" opacity="0.55" />
+
+          <!-- Campus Pond / Lake (East) -->
+          <path d="M 735 350 C 780 335, 845 365, 835 420 C 825 465, 760 475, 730 435 C 710 405, 710 365, 735 350 Z" fill="#0c2d48" stroke="#1e40af" stroke-width="1.5" opacity="0.8" />
+          <text x="778" y="408" text-anchor="middle" fill="#60a5fa" fill-opacity="0.45" font-size="10" font-weight="700">MIRROR LAKE</text>
+
+          <!-- Pedestrian Pathways inside Quad -->
+          <g stroke="#1e293b" stroke-width="3" stroke-dasharray="4 4" fill="none">
+            <line x1="290" y1="300" x2="610" y2="300" />
+            <line x1="450" y1="195" x2="450" y2="405" />
+            <line x1="315" y1="215" x2="585" y2="385" />
+            <line x1="585" y1="215" x2="315" y2="385" />
+          </g>
+
+          <!-- CAMPUS ROAD NETWORK (ASPHALT BASE) -->
+          <g fill="none" stroke="#1e293b" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+            <!-- Outer Loop Road -->
+            <path d="M 145 110 L 755 110 Q 815 110 815 170 L 815 470 Q 815 530 755 530 L 145 530 Q 85 530 85 470 L 85 170 Q 85 110 145 110 Z" />
+            <!-- Central Cross Avenue (North-South) -->
+            <path d="M 450 110 L 450 530" />
+            <!-- Mid-Campus Connector (East-West) -->
+            <path d="M 85 300 L 290 300" />
+            <path d="M 610 300 L 815 300" />
+          </g>
+          <!-- Road Center Divider Markings -->
+          <g fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="8 8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M 145 110 L 755 110 Q 815 110 815 170 L 815 470 Q 815 530 755 530 L 145 530 Q 85 530 85 470 L 85 170 Q 85 110 145 110 Z" />
+            <path d="M 450 110 L 450 530" />
+          </g>
+
+          <!-- CAMPUS BUILDINGS (STYLED 2.5D BLOCKS) -->
+          <g filter="url(#bldgShadow)">
+            <!-- 1. North Dorms (Top Center) -->
+            <rect x="335" y="34" width="230" height="48" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+            <text x="450" y="62" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">NORTH HALLS & DORMS</text>
+
+            <!-- 2. Science & Tech Center (Top Left) -->
+            <rect x="125" y="142" width="135" height="75" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+            <text x="192" y="176" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">SCIENCE</text>
+            <text x="192" y="191" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600">CENTER</text>
+
+            <!-- 3. Engineering Quad (Top Right) -->
+            <rect x="640" y="142" width="140" height="82" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+            <text x="710" y="179" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">ENGINEERING</text>
+            <text x="710" y="194" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600">COMPLEX</text>
+
+            <!-- 4. Main Library (Center Left inside Quad) -->
+            <rect x="315" y="218" width="110" height="65" rx="10" fill="#172554" stroke="#3b82f6" stroke-opacity="0.5" stroke-width="1.5" />
+            <text x="370" y="248" text-anchor="middle" fill="#dbeafe" font-size="11" font-weight="700">MAIN</text>
+            <text x="370" y="262" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600">LIBRARY</text>
+
+            <!-- 5. Student Union (Center Right inside Quad - User Location!) -->
+            <rect x="475" y="218" width="115" height="65" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-opacity="0.6" stroke-width="1.5" />
+            <text x="532" y="248" text-anchor="middle" fill="#e0e7ff" font-size="11" font-weight="700">STUDENT</text>
+            <text x="532" y="262" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="600">UNION</text>
+
+            <!-- 6. Medical & Health Center (Bottom Left) -->
+            <rect x="125" y="385" width="135" height="75" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+            <text x="192" y="419" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">CAMPUS</text>
+            <text x="192" y="434" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600">HEALTH CLINIC</text>
+
+            <!-- 7. Athletics & Arena (Bottom Right) -->
+            <rect x="630" y="455" width="150" height="52" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+            <text x="705" y="485" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">ATHLETICS ARENA</text>
+
+            <!-- 8. South Parking Hub (Bottom Center) -->
+            <rect x="335" y="555" width="230" height="44" rx="10" fill="#1e293b" stroke="#475569" stroke-width="1.5" />
+            <text x="450" y="581" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="700">SOUTH TRANSIT & PARKING HUB</text>
+          </g>
+
+          <!-- SHUTTLE ROUTE SVG PATHS (Color Coded & Animated) -->
+          <g id="routePathsLayer" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <!-- RED LINE: Express Perimeter Loop -->
+            <g id="routeGroup-red" class="route-visual-group transition-opacity duration-300">
+              <path id="path-red-glow" d="M 145 104 L 755 104 Q 821 104 821 170 L 821 470 Q 821 536 755 536 L 145 536 Q 79 536 79 470 L 79 170 Q 79 104 145 104 Z" stroke="#ef4444" stroke-width="10" stroke-opacity="0.18" />
+              <path id="path-red" d="M 145 104 L 755 104 Q 821 104 821 170 L 821 470 Q 821 536 755 536 L 145 536 Q 79 536 79 470 L 79 170 Q 79 104 145 104 Z" stroke="#ef4444" stroke-width="4.5" />
+              <path d="M 145 104 L 755 104 Q 821 104 821 170 L 821 470 Q 821 536 755 536 L 145 536 Q 79 536 79 470 L 79 170 Q 79 104 145 104 Z" stroke="#fca5a5" stroke-width="1.5" class="route-path-flow" opacity="0.65" />
+            </g>
+
+            <!-- BLUE LINE: North-South Academic Spine -->
+            <g id="routeGroup-blue" class="route-visual-group transition-opacity duration-300">
+              <path id="path-blue-glow" d="M 450 110 L 450 530 L 145 530 Q 85 530 85 470 L 85 300 L 450 300 L 450 110 Z" stroke="#3b82f6" stroke-width="10" stroke-opacity="0.2" />
+              <path id="path-blue" d="M 450 110 L 450 530 L 145 530 Q 85 530 85 470 L 85 300 L 450 300 L 450 110 Z" stroke="#3b82f6" stroke-width="4.5" />
+              <path d="M 450 110 L 450 530 L 145 530 Q 85 530 85 470 L 85 300 L 450 300 L 450 110 Z" stroke="#93c5fd" stroke-width="1.5" class="route-path-flow" opacity="0.7" />
+            </g>
+
+            <!-- GOLD LINE: Evening SafeRide East-West Connector -->
+            <g id="routeGroup-gold" class="route-visual-group transition-opacity duration-300">
+              <path id="path-gold-glow" d="M 450 116 L 755 116 Q 809 116 809 170 L 809 300 L 450 300 L 450 524 L 755 524 Q 809 524 809 470 L 809 300 L 610 300 L 450 300 L 450 116 Z" stroke="#f59e0b" stroke-width="9" stroke-opacity="0.18" />
+              <path id="path-gold" d="M 450 116 L 755 116 Q 809 116 809 170 L 809 300 L 450 300 L 450 524 L 755 524 Q 809 524 809 470 L 809 300 L 610 300 L 450 300 L 450 116 Z" stroke="#f59e0b" stroke-width="4" />
+            </g>
+          </g>
+
+          <!-- SIMULATED USER LOCATION PIN (Near Student Union / Central Quad) -->
+          <g id="userLocationPin" transform="translate(515, 292)">
+            <circle r="14" fill="#38bdf8" class="radar-ring" />
+            <circle r="7" fill="#0284c7" stroke="#ffffff" stroke-width="2.5" />
+            <g transform="translate(0, -18)">
+              <rect x="-24" y="-11" width="48" height="16" rx="6" fill="#0f172a" stroke="#38bdf8" stroke-width="1" />
+              <text x="0" y="0" text-anchor="middle" fill="#38bdf8" font-size="9" font-weight="800">YOU</text>
+            </g>
+          </g>
+
+          <!-- INTERACTIVE STOP MARKERS LAYER (Populated via JS) -->
+          <g id="stopsLayer"></g>
+
+          <!-- LIVE ANIMATED SHUTTLE BUSES LAYER (Populated & Updated via JS) -->
+          <g id="busesLayer"></g>
+        </svg>
+      </div>
+
+      <!-- Bottom Map Legend Bar -->
+      <div class="bg-slate-900/95 border-t border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 shrink-0">
+        <div class="flex items-center gap-4">
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-white border-2 border-slate-900 ring-2 ring-slate-500"></span> Shuttle Stop</span>
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Your Location</span>
+          <span class="hidden sm:flex items-center gap-1.5"><i class="fa-solid fa-bus text-amber-400"></i> Click bus for live capacity</span>
+        </div>
+        <span class="text-slate-500 font-medium">Tap any stop on map to view arrivals</span>
+      </div>
+    </section>
+
+    <!-- RIGHT / BOTTOM SECTION: LIVE SCHEDULE, COUNTDOWNS & STOP-BY-STOP TIMELINE -->
+    <section class="w-full lg:w-[40%] xl:w-[36%] flex-1 lg:h-full bg-slate-900 flex flex-col overflow-hidden">
+      
+      <!-- SELECTED STOP HEADER & DROPDOWN SELECTOR -->
+      <div class="p-4 bg-slate-900 border-b border-slate-800 shrink-0 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+            <i class="fa-solid fa-location-dot"></i> Selected Campus Stop
+          </span>
+          <span id="stopWalkingBadge" class="text-[11px] font-medium text-slate-400 bg-slate-850 px-2.5 py-0.5 rounded-full border border-slate-800">
+            <i class="fa-solid fa-person-walking text-sky-400 mr-1"></i> 2 min walk from you
+          </span>
+        </div>
+
+        <!-- Stop Dropdown Selector for quick mobile access -->
+        <div class="relative">
+          <select id="stopDropdown" onchange="selectStop(this.value)" aria-label="Select Campus Shuttle Stop" class="w-full appearance-none bg-slate-850 hover:bg-slate-800 border border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-white font-bold text-sm sm:text-base rounded-xl px-3.5 py-2.5 pr-10 transition cursor-pointer outline-none">
+            <!-- Options populated dynamically by JS -->
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+            <i class="fa-solid fa-chevron-down text-xs"></i>
+          </div>
+        </div>
+
+        <!-- Route Badges Serving This Stop -->
+        <div id="stopServingRoutes" class="flex flex-wrap items-center gap-1.5">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- VIEW TABS: LIVE ARRIVALS VS STOP-BY-STOP ROUTE TIMELINE -->
+      <div class="px-4 pt-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center gap-4 shrink-0">
+        <button id="tabArrivals" onclick="switchSideTab('arrivals')" class="pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-blue-500 text-white transition flex items-center gap-2">
+          <i class="fa-solid fa-stopwatch text-blue-400"></i>
+          <span>Next Arrivals</span>
+          <span id="arrivalCountBadge" class="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-500/20 text-blue-300 font-mono">3</span>
+        </button>
+        <button id="tabTimeline" onclick="switchSideTab('timeline')" class="pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-2">
+          <i class="fa-solid fa-route text-slate-400"></i>
+          <span>Stop-by-Stop Route</span>
+        </button>
+      </div>
+
+      <!-- SCROLLABLE CONTENT BODY -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        
+        <!-- VIEW 1: LIVE COUNTDOWN ARRIVAL CARDS -->
+        <div id="arrivalsView" class="space-y-3">
+          <div class="flex items-center justify-between text-xs text-slate-400 px-1">
+            <span>Upcoming Shuttles</span>
+            <span class="font-mono text-[11px]">Updates every second</span>
+          </div>
+
+          <!-- Dynamic Countdown Cards Container -->
+          <div id="arrivalCardsList" class="space-y-2.5">
+            <!-- Populated by JS -->
+          </div>
+
+          <!-- Service Alert / Weather Tip Banner -->
+          <div class="mt-4 bg-slate-850/90 border border-slate-800 rounded-2xl p-3.5 flex items-start gap-3">
+            <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
+              <i class="fa-solid fa-shield-halved text-sm"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-200">Evening SafeRide Active</h4>
+              <p class="text-[11px] text-slate-400 leading-relaxed mt-0.5">
+                Gold Line shuttles run every 12 mins between North Dorms, Student Union, and South Parking Hub with door-side drop-off requests.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 2: STOP-BY-STOP ROUTE TIMELINE -->
+        <div id="timelineView" class="hidden space-y-3">
+          <!-- Route Sub-selector for Stop-by-Stop inspection -->
+          <div class="flex items-center justify-between bg-slate-850 p-2 rounded-xl border border-slate-800">
+            <span class="text-xs font-semibold text-slate-400 pl-1">Inspecting Line:</span>
+            <select id="timelineRouteSelect" onchange="renderStopTimeline(this.value)" class="bg-slate-900 border border-slate-700 text-xs font-bold text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer">
+              <option value="red">Red Line — Express Loop</option>
+              <option value="blue">Blue Line — North/South</option>
+              <option value="gold">Gold Line — SafeRide</option>
+            </select>
+          </div>
+
+          <!-- Vertical Route Stepper -->
+          <div id="routeTimelineContainer" class="relative pl-4 pt-1 pb-4 space-y-0">
+            <!-- Populated dynamically by JS -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- TOAST NOTIFICATION CONTAINER (Replaces alert()) -->
+  <div id="toastNotification" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 pointer-events-none transition-all duration-300 bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 max-w-sm">
+    <div id="toastIcon" class="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+      <i class="fa-solid fa-location-dot"></i>
+    </div>
+    <div class="text-xs">
+      <p id="toastTitle" class="font-bold text-slate-100">Nearest Stop Found</p>
+      <p id="toastMessage" class="text-slate-400 mt-0.5">Student Union Hub is 2 mins away.</p>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * CAMPUS TRANSIT TRACKER — DATA MODELS & LIVE SIMULATION ENGINE
+     * ============================================================================
+     */
+
+    // 1. Campus Stops Data (Coordinates match SVG viewBox 900x620)
+    const CAMPUS_STOPS = [
+      {
+        id: 'union',
+        name: 'Student Union & Quad',
+        code: 'STP-01',
+        x: 450,
+        y: 300,
+        labelOffset: { x: -12, y: -16, anchor: 'end' },
+        routes: ['blue', 'gold'],
+        walkMins: 1,
+        landmarks: 'Food Court, Bookstore, Central Quad'
+      },
+      {
+        id: 'north_dorms',
+        name: 'North Dorms & Commons',
+        code: 'STP-02',
+        x: 450,
+        y: 110,
+        labelOffset: { x: 0, y: -16, anchor: 'middle' },
+        routes: ['red', 'blue', 'gold'],
+        walkMins: 4,
+        landmarks: 'Freshman Towers, Dining Hall'
+      },
+      {
+        id: 'science',
+        name: 'Science & Tech Center',
+        code: 'STP-03',
+        x: 85,
+        y: 190,
+        labelOffset: { x: 16, y: 4, anchor: 'start' },
+        routes: ['red'],
+        walkMins: 6,
+        landmarks: 'Chemistry Labs, Planetarium'
+      },
+      {
+        id: 'library',
+        name: 'Main Library West',
+        code: 'STP-04',
+        x: 245,
+        y: 300,
+        labelOffset: { x: 0, y: -16, anchor: 'middle' },
+        routes: ['blue'],
+        walkMins: 3,
+        landmarks: '24/7 Study Commons, Media Lab'
+      },
+      {
+        id: 'health',
+        name: 'Campus Health & Med',
+        code: 'STP-05',
+        x: 85,
+        y: 425,
+        labelOffset: { x: 16, y: 4, anchor: 'start' },
+        routes: ['red', 'blue'],
+        walkMins: 7,
+        landmarks: 'Student Wellness, Pharmacy'
+      },
+      {
+        id: 'south_hub',
+        name: 'South Parking & Transit Hub',
+        code: 'STP-06',
+        x: 450,
+        y: 530,
+        labelOffset: { x: 0, y: 24, anchor: 'middle' },
+        routes: ['red', 'blue', 'gold'],
+        walkMins: 5,
+        landmarks: 'Commuter Garage, Bike Lockers'
+      },
+      {
+        id: 'athletics',
+        name: 'Athletics & Recreation Arena',
+        code: 'STP-07',
+        x: 815,
+        y: 465,
+        labelOffset: { x: -16, y: 4, anchor: 'end' },
+        routes: ['red', 'gold'],
+        walkMins: 8,
+        landmarks: 'Varsity Stadium, Aquatic Center'
+      },
+      {
+        id: 'engineering',
+        name: 'Engineering & Robotics Quad',
+        code: 'STP-08',
+        x: 815,
+        y: 190,
+        labelOffset: { x: -16, y: 4, anchor: 'end' },
+        routes: ['red', 'gold'],
+        walkMins: 5,
+        landmarks: 'MakerSpace, Computer Science Hall'
+      }
+    ];
+
+    // 2. Route Definitions with SVG path IDs, loop duration (in real seconds), and ordered stops
+    const ROUTES = {
+      red: {
+        id: 'red',
+        name: 'Red Line',
+        fullName: 'Red Line — Express Loop',
+        color: '#ef4444',
+        bgClass: 'bg-red-500',
+        textClass: 'text-red-400',
+        borderClass: 'border-red-500/40',
+        badgeBg: 'bg-red-500/15',
+        pathId: 'path-red',
+        loopDurationSec: 420, // 7 minutes full loop
+        frequencyText: 'Every 3.5 mins',
+        stops: ['north_dorms', 'engineering', 'athletics', 'south_hub', 'health', 'science']
+      },
+      blue: {
+        id: 'blue',
+        name: 'Blue Line',
+        fullName: 'Blue Line — North/South Spine',
+        color: '#3b82f6',
+        bgClass: 'bg-blue-500',
+        textClass: 'text-blue-400',
+        borderClass: 'border-blue-500/40',
+        badgeBg: 'bg-blue-500/15',
+        pathId: 'path-blue',
+        loopDurationSec: 360, // 6 minutes full loop
+        frequencyText: 'Every 3 mins',
+        stops: ['north_dorms', 'union', 'south_hub', 'health', 'library', 'union']
+      },
+      gold: {
+        id: 'gold',
+        name: 'Gold Line',
+        fullName: 'Gold Line — Evening SafeRide',
+        color: '#f59e0b',
+        bgClass: 'bg-amber-500',
+        textClass: 'text-amber-400',
+        borderClass: 'border-amber-500/40',
+        badgeBg: 'bg-amber-500/15',
+        pathId: 'path-gold',
+        loopDurationSec: 480, // 8 minutes full loop
+        frequencyText: 'Every 4 mins',
+        stops: ['north_dorms', 'engineering', 'union', 'south_hub', 'athletics', 'union']
+      }
+    };
+
+    // 3. Simulated Live Buses Fleet (2 buses per route spaced evenly along loop progress 0.0 -> 1.0)
+    const BUS_FLEET = [
+      { id: 'RED-101', routeId: 'red', progress: 0.12, capacity: 45, status: 'On Time' },
+      { id: 'RED-104', routeId: 'red', progress: 0.62, capacity: 78, status: 'On Time' },
+      { id: 'BLU-202', routeId: 'blue', progress: 0.08, capacity: 30, status: 'On Time' },
+      { id: 'BLU-205', routeId: 'blue', progress: 0.58, capacity: 85, status: 'Delayed +1m' },
+      { id: 'GLD-301', routeId: 'gold', progress: 0.25, capacity: 20, status: 'On Time' },
+      { id: 'GLD-308', routeId: 'gold', progress: 0.75, capacity: 55, status: 'On Time' }
+    ];
+
+    // Application State
+    let state = {
+      selectedRoute: 'all',       // 'all' | 'red' | 'blue' | 'gold'
+      selectedStopId: 'union',    // Defaults to Student Union (closest to user)
+      selectedBusId: null,        // Currently inspected bus on map
+      activeSideTab: 'arrivals',  // 'arrivals' | 'timeline'
+      simSpeed: 1,                // 1 = Real-time, 10 = 10x Fast-Forward demo
+      isPaused: false,
+      lastFrameTime: performance.now(),
+      pathCache: {},              // Stores SVGPathElement & totalLength
+      stopProgressMap: {}         // Precomputed normalized progress (0..1) of each stop along each route
+    };
+
+    /**
+     * ============================================================================
+     * INITIALIZATION & GEOMETRIC PATH MAPPING
+     * ============================================================================
+     */
+    window.addEventListener('DOMContentLoaded', () => {
+      initDropdowns();
+      cacheSvgPathsAndStopPositions();
+      renderMapStops();
+      renderMapBuses();
+      updateSelectedStopUI();
+      renderStopTimeline('red');
+      
+      // Start real-time clock interval
+      updateLiveClock();
+      setInterval(updateLiveClock, 1000);
+
+      // Start smooth 60fps animation loop for buses & countdown timers
+      state.lastFrameTime = performance.now();
+      requestAnimationFrame(simulationLoop);
+    });
+
+    /**
+     * Pre-calculates exact SVG path lengths and finds the closest normalized
+     * path progress (0.0 to 1.0) for every stop on every route so ETA countdowns
+     * match the exact visual bus positions on the SVG map!
+     */
+    function cacheSvgPathsAndStopPositions() {
+      Object.values(ROUTES).forEach(route => {
+        const pathEl = document.getElementById(route.pathId);
+        if (!pathEl) return;
+        const totalLen = pathEl.getTotalLength();
+        state.pathCache[route.id] = { element: pathEl, length: totalLen };
+        state.stopProgressMap[route.id] = {};
+
+        // Sample 400 points along the path to map each stop to its exact path progress
+        const samples = 400;
+        const sampledPoints = [];
+        for (let i = 0; i <= samples; i++) {
+          const frac = i / samples;
+          const pt = pathEl.getPointAtLength(frac * totalLen);
+          sampledPoints.push({ frac, x: pt.x, y: pt.y });
+        }
+
+        CAMPUS_STOPS.forEach(stop => {
+          if (!stop.routes.includes(route.id)) return;
+          let bestFrac = 0;
+          let minDist = Infinity;
+          for (const sp of sampledPoints) {
+            const d = Math.hypot(sp.x - stop.x, sp.y - stop.y);
+            if (d < minDist) {
+              minDist = d;
+              bestFrac = sp.frac;
+            }
+          }
+          state.stopProgressMap[route.id][stop.id] = bestFrac;
+        });
+      });
+    }
+
+    /**
+     * Populate the stop dropdown menu
+     */
+    function initDropdowns() {
+      const dropdown = document.getElementById('stopDropdown');
+      dropdown.innerHTML = CAMPUS_STOPS.map(stop => {
+        return `<option value="${stop.id}">${stop.name} (${stop.code})</option>`;
+      }).join('');
+      dropdown.value = state.selectedStopId;
+    }
+
+    /**
+     * ============================================================================
+     * SVG MAP RENDERING (STOPS & MOVING BUSES)
+     * ============================================================================
+     */
+    function renderMapStops() {
+      const layer = document.getElementById('stopsLayer');
+      layer.innerHTML = '';
+
+      CAMPUS_STOPS.forEach(stop => {
+        const isSelected = stop.id === state.selectedStopId;
+        const matchesRoute = state.selectedRoute === 'all' || stop.routes.includes(state.selectedRoute);
+        
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', `stop-node ${isSelected ? 'active-stop' : ''}`);
+        g.setAttribute('transform', `translate(${stop.x}, ${stop.y})`);
+        g.setAttribute('opacity', matchesRoute ? '1' : '0.3');
+        g.onclick = (e) => {
+          e.stopPropagation();
+          selectStop(stop.id);
+        };
+
+        // Outer selection pulse ring
+        if (isSelected) {
+          const pulse = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          pulse.setAttribute('r', '16');
+          pulse.setAttribute('fill', '#38bdf8');
+          pulse.setAttribute('opacity', '0.35');
+          pulse.setAttribute('class', 'radar-ring');
+          g.appendChild(pulse);
+        }
+
+        // Stop circle marker
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('r', isSelected ? '8.5' : '6.5');
+        circle.setAttribute('fill', isSelected ? '#38bdf8' : '#f8fafc');
+        circle.setAttribute('stroke', isSelected ? '#ffffff' : '#0f172a');
+        circle.setAttribute('stroke-width', isSelected ? '3' : '2.5');
+        if (isSelected) circle.setAttribute('filter', 'url(#stopGlow)');
+        g.appendChild(circle);
+
+        // Stop Name Label Pill
+        const labelGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const ox = stop.labelOffset.x;
+        const oy = stop.labelOffset.y;
+        labelGroup.setAttribute('transform', `translate(${ox}, ${oy})`);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('text-anchor', stop.labelOffset.anchor);
+        text.setAttribute('fill', isSelected ? '#38bdf8' : '#e2e8f0');
+        text.setAttribute('font-size', isSelected ? '11.5' : '10.5');
+        text.setAttribute('font-weight', isSelected ? '800' : '700');
+        text.setAttribute('paint-order', 'stroke');
+        text.setAttribute('stroke', '#090d16');
+        text.setAttribute('stroke-width', '3.5');
+        text.setAttribute('stroke-linejoin', 'round');
+        text.textContent = stop.name.split(' & ')[0]; // Concise map label
+        
+        labelGroup.appendChild(text);
+        g.appendChild(labelGroup);
+        layer.appendChild(g);
+      });
+    }
+
+    function renderMapBuses() {
+      const layer = document.getElementById('busesLayer');
+      layer.innerHTML = '';
+
+      BUS_FLEET.forEach(bus => {
+        const route = ROUTES[bus.routeId];
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('id', `bus-svg-${bus.id}`);
+        g.setAttribute('class', 'bus-marker-group');
+        g.onclick = (e) => {
+          e.stopPropagation();
+          openBusPopup(bus.id);
+        };
+
+        // Direction arrow / heading indicator triangle
+        const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        pointer.setAttribute('points', '0,-16 6,-8 -6,-8');
+        pointer.setAttribute('fill', '#ffffff');
+        pointer.setAttribute('id', `bus-dir-${bus.id}`);
+        g.appendChild(pointer);
+
+        // Bus Body Pill
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', '-15');
+        rect.setAttribute('y', '-10');
+        rect.setAttribute('width', '30');
+        rect.setAttribute('height', '20');
+        rect.setAttribute('rx', '6');
+        rect.setAttribute('fill', route.color);
+        rect.setAttribute('stroke', '#ffffff');
+        rect.setAttribute('stroke-width', '2');
+        g.appendChild(rect);
+
+        // Bus Short ID Text
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', '0');
+        label.setAttribute('y', '3.5');
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('fill', '#ffffff');
+        label.setAttribute('font-size', '8.5');
+        label.setAttribute('font-weight', '800');
+        label.setAttribute('font-family', 'JetBrains Mono, monospace');
+        label.textContent = bus.id.split('-')[1];
+        g.appendChild(label);
+
+        layer.appendChild(g);
+      });
+    }
+
+    /**
+     * ============================================================================
+     * MAIN REAL-TIME SIMULATION LOOP (60 FPS)
+     * ============================================================================
+     */
+    let lastUiRefreshTime = 0;
+
+    function simulationLoop(now) {
+      const dtSeconds = (now - state.lastFrameTime) / 1000;
+      state.lastFrameTime = now;
+
+      if (!state.isPaused) {
+        // Advance each bus along its SVG path
+        BUS_FLEET.forEach(bus => {
+          const route = ROUTES[bus.routeId];
+          const deltaProgress = (dtSeconds * state.simSpeed) / route.loopDurationSec;
+          bus.progress = (bus.progress + deltaProgress) % 1;
+        });
+      }
+
+      // Update visual SVG coordinates & heading angles for every bus
+      updateBusSvgPositions();
+
+      // Throttle schedule DOM updates to ~4 times per second for crisp performance
+      if (now - lastUiRefreshTime > 250) {
+        renderArrivalCards();
+        if (state.selectedBusId) {
+          updateBusPopupData(state.selectedBusId);
+        }
+        lastUiRefreshTime = now;
+      }
+
+      requestAnimationFrame(simulationLoop);
+    }
+
+    function updateBusSvgPositions() {
+      BUS_FLEET.forEach(bus => {
+        const busEl = document.getElementById(`bus-svg-${bus.id}`);
+        const dirEl = document.getElementById(`bus-dir-${bus.id}`);
+        const cache = state.pathCache[bus.routeId];
+        if (!busEl || !cache) return;
+
+        // Filter visibility based on selectedRoute
+        const isVisible = state.selectedRoute === 'all' || state.selectedRoute === bus.routeId;
+        busEl.style.display = isVisible ? 'block' : 'none';
+        if (!isVisible) return;
+
+        const currentDist = bus.progress * cache.length;
+        const nextDist = (currentDist + 2) % cache.length;
+        const pt = cache.element.getPointAtLength(currentDist);
+        const ptNext = cache.element.getPointAtLength(nextDist);
+
+        // Calculate heading angle in degrees
+        const angleRad = Math.atan2(ptNext.y - pt.y, ptNext.x - pt.x);
+        const angleDeg = (angleRad * 180) / Math.PI + 90;
+
+        busEl.setAttribute('transform', `translate(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)})`);
+        if (dirEl) {
+          dirEl.setAttribute('transform', `rotate(${angleDeg.toFixed(1)})`);
+        }
+      });
+    }
+
+    /**
+     * ============================================================================
+     * ETA & COUNTDOWN CALCULATIONS
+     * ============================================================================
+     */
+    function getUpcomingArrivalsForStop(stopId) {
+      const stop = CAMPUS_STOPS.find(s => s.id === stopId);
+      if (!stop) return [];
+
+      const arrivals = [];
+
+      BUS_FLEET.forEach(bus => {
+        // Check if route serves this stop & matches active route filter
+        if (!stop.routes.includes(bus.routeId)) return;
+        if (state.selectedRoute !== 'all' && state.selectedRoute !== bus.routeId) return;
+
+        const route = ROUTES[bus.routeId];
+        const targetProgress = state.stopProgressMap[bus.routeId][stopId];
+        if (targetProgress === undefined) return;
+
+        // Circular distance along route loop (0.0 to 1.0)
+        let remainingFrac = targetProgress - bus.progress;
+        if (remainingFrac < 0) remainingFrac += 1.0;
+
+        const etaSeconds = Math.round(remainingFrac * route.loopDurationSec);
+
+        arrivals.push({
+          busId: bus.id,
+          route: route,
+          etaSeconds: etaSeconds,
+          capacity: bus.capacity,
+          status: etaSeconds <= 20 ? 'Arriving Now' : bus.status
+        });
+      });
+
+      // Sort soonest first and return top 4 arrivals
+      return arrivals.sort((a, b) => a.etaSeconds - b.etaSeconds);
+    }
+
+    function formatCountdown(seconds) {
+      if (seconds <= 15) return 'DUE';
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins === 0) return `${secs}s`;
+      return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+    }
+
+    /**
+     * ============================================================================
+     * UI UPDATES: ARRIVAL CARDS, STOP SELECTION, & ROUTE TIMELINE
+     * ============================================================================
+     */
+    function updateSelectedStopUI() {
+      const stop = CAMPUS_STOPS.find(s => s.id === state.selectedStopId);
+      if (!stop) return;
+
+      document.getElementById('stopDropdown').value = stop.id;
+      document.getElementById('stopWalkingBadge').innerHTML = `
+        <i class="fa-solid fa-person-walking text-sky-400 mr-1"></i> ${stop.walkMins} min walk from you
+      `;
+
+      // Render route badges serving this stop
+      const badgesContainer = document.getElementById('stopServingRoutes');
+      badgesContainer.innerHTML = stop.routes.map(rId => {
+        const r = ROUTES[rId];
+        return `
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold ${r.badgeBg} ${r.textClass} border ${r.borderClass}">
+            <span class="w-2 h-2 rounded-full ${r.bgClass}"></span>
+            ${r.name}
+          </span>
+        `;
+      }).join('') + `<span class="text-[11px] text-slate-500 ml-1 truncate">${stop.landmarks}</span>`;
+
+      // If the active route filter doesn't serve this stop, auto-switch timeline selector to first valid route
+      const timelineSelect = document.getElementById('timelineRouteSelect');
+      if (!stop.routes.includes(timelineSelect.value)) {
+        timelineSelect.value = stop.routes[0];
+      }
+      renderStopTimeline(timelineSelect.value);
+      renderArrivalCards();
+    }
+
+    function renderArrivalCards() {
+      const container = document.getElementById('arrivalCardsList');
+      const countBadge = document.getElementById('arrivalCountBadge');
+      const arrivals = getUpcomingArrivalsForStop(state.selectedStopId);
+
+      countBadge.textContent = arrivals.length;
+
+      if (arrivals.length === 0) {
+        container.innerHTML = `
+          <div class="bg-slate-850 border border-slate-800 rounded-2xl p-6 text-center">
+            <i class="fa-solid fa-route text-slate-600 text-2xl mb-2"></i>
+            <p class="text-sm font-bold text-slate-300">No shuttles on filtered route</p>
+            <p class="text-xs text-slate-500 mt-1">This stop is not served by the currently selected line filter.</p>
+            <button onclick="selectRoute('all')" class="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition">
+              Show All Lines
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = arrivals.map((item, idx) => {
+        const isImminent = item.etaSeconds <= 45;
+        const isDue = item.etaSeconds <= 15;
+        const loadColor = item.capacity > 75 ? 'text-rose-400' : item.capacity > 50 ? 'text-amber-400' : 'text-emerald-400';
+        const loadLabel = item.capacity > 75 ? 'Standing Room' : item.capacity > 50 ? 'Moderate' : 'Seats Open';
+
+        return `
+          <div onclick="openBusPopup('${item.busId}')" class="group cursor-pointer bg-slate-850 hover:bg-slate-800/90 border ${isImminent ? 'border-emerald-500/40 shadow-lg shadow-emerald-950/20' : 'border-slate-800'} rounded-2xl p-3.5 transition-all flex items-center justify-between gap-3">
+            <!-- Left: Route Color Strip & Bus Metadata -->
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-1.5 h-12 rounded-full ${item.route.bgClass} shrink-0"></div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-extrabold uppercase tracking-wide ${item.route.textClass}">${item.route.name}</span>
+                  <span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[10px] font-bold text-slate-300">
+                    ${item.busId}
+                  </span>
+                </div>
+                <p class="text-xs font-semibold text-slate-300 truncate mt-0.5">${item.route.fullName.split('— ')[1]}</p>
+                <div class="flex items-center gap-2.5 mt-1 text-[11px] text-slate-400">
+                  <span class="flex items-center gap-1 ${loadColor}">
+                    <i class="fa-solid fa-users text-[10px]"></i> ${loadLabel}
+                  </span>
+                  <span>•</span>
+                  <span class="${item.status.includes('Delayed') ? 'text-amber-400 font-semibold' : 'text-slate-400'}">
+                    ${item.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Real-Time Ticking Countdown Box -->
+            <div class="text-right shrink-0">
+              <div class="px-3 py-1.5 rounded-xl font-mono font-extrabold text-sm sm:text-base ${isDue ? 'bg-emerald-500 text-slate-950 animate-pulse' : isImminent ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-900 text-white border border-slate-700/80'}">
+                ${formatCountdown(item.etaSeconds)}
+              </div>
+              <span class="block text-[10px] text-slate-500 mt-1 font-medium">
+                ${idx === 0 ? 'Next Shuttle' : `In ${Math.ceil(item.etaSeconds / 60)} min`}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /**
+     * Render Stop-by-Stop Vertical Timeline for any chosen route
+     */
+    function renderStopTimeline(routeId) {
+      const route = ROUTES[routeId];
+      const container = document.getElementById('routeTimelineContainer');
+      if (!route || !container) return;
+
+      container.innerHTML = route.stops.map((stopId, index) => {
+        const stop = CAMPUS_STOPS.find(s => s.id === stopId);
+        const isLast = index === route.stops.length - 1;
+        const isCurrentSelected = stop.id === state.selectedStopId;
+        const segmentMinutes = Math.round(route.loopDurationSec / route.stops.length / 60);
+
+        return `
+          <div onclick="selectStop('${stop.id}')" class="relative pl-6 pb-5 cursor-pointer group">
+            <!-- Vertical Connecting Line -->
+            ${!isLast ? `<div class="absolute left-[7px] top-3 bottom-0 w-[3px] ${route.bgClass} opacity-40 group-hover:opacity-80 transition"></div>` : ''}
+            
+            <!-- Timeline Node Dot -->
+            <div class="absolute left-0 top-1 w-4 h-4 rounded-full border-2 ${isCurrentSelected ? 'bg-sky-400 border-white scale-125 shadow-[0_0_10px_#38bdf8]' : `bg-slate-900 border-slate-300 group-hover:${route.bgClass}`} transition"></div>
+            
+            <!-- Stop Details Row -->
+            <div class="bg-slate-850/90 group-hover:bg-slate-800 border ${isCurrentSelected ? 'border-sky-500/50' : 'border-slate-800'} rounded-xl p-2.5 transition flex items-center justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold ${isCurrentSelected ? 'text-sky-400' : 'text-slate-100'}">${stop.name}</span>
+                  ${isCurrentSelected ? '<span class="px-1.5 py-0.2 bg-sky-500/20 text-sky-300 rounded text-[9px] font-extrabold uppercase">Selected</span>' : ''}
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5">${stop.landmarks}</p>
+              </div>
+              <div class="text-right shrink-0">
+                <span class="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                  +${index * segmentMinutes}m
+                </span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /**
+     * ============================================================================
+     * USER INTERACTION HANDLERS
+     * ============================================================================
+     */
+    function selectRoute(routeId) {
+      state.selectedRoute = routeId;
+
+      // Update Route Filter Pills UI
+      document.querySelectorAll('.route-pill').forEach(btn => {
+        const isMatch = btn.dataset.route === routeId;
+        if (isMatch) {
+          btn.className = 'route-pill active px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-100 text-slate-950 shadow';
+        } else {
+          btn.className = 'route-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap text-slate-300 hover:bg-slate-800';
+        }
+      });
+
+      // Dim unselected route paths on SVG map
+      ['red', 'blue', 'gold'].forEach(r => {
+        const group = document.getElementById(`routeGroup-${r}`);
+        if (group) {
+          group.style.opacity = (routeId === 'all' || routeId === r) ? '1' : '0.15';
+        }
+      });
+
+      if (routeId !== 'all') {
+        document.getElementById('timelineRouteSelect').value = routeId;
+        renderStopTimeline(routeId);
+      }
+
+      renderMapStops();
+      renderArrivalCards();
+    }
+
+    function selectStop(stopId) {
+      state.selectedStopId = stopId;
+      renderMapStops();
+      updateSelectedStopUI();
+    }
+
+    function switchSideTab(tab) {
+      state.activeSideTab = tab;
+      const arrivalsView = document.getElementById('arrivalsView');
+      const timelineView = document.getElementById('timelineView');
+      const tabArrivals = document.getElementById('tabArrivals');
+      const tabTimeline = document.getElementById('tabTimeline');
+
+      if (tab === 'arrivals') {
+        arrivalsView.classList.remove('hidden');
+        timelineView.classList.add('hidden');
+        tabArrivals.className = 'pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-blue-500 text-white transition flex items-center gap-2';
+        tabTimeline.className = 'pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-2';
+      } else {
+        arrivalsView.classList.add('hidden');
+        timelineView.classList.remove('hidden');
+        tabTimeline.className = 'pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-blue-500 text-white transition flex items-center gap-2';
+        tabArrivals.className = 'pb-2.5 text-xs sm:text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-2';
+      }
+    }
+
+    function openBusPopup(busId) {
+      state.selectedBusId = busId;
+      const popup = document.getElementById('busDetailPopup');
+      popup.classList.remove('hidden');
+      updateBusPopupData(busId);
+    }
+
+    function closeBusPopup() {
+      state.selectedBusId = null;
+      document.getElementById('busDetailPopup').classList.add('hidden');
+    }
+
+    function updateBusPopupData(busId) {
+      const bus = BUS_FLEET.find(b => b.id === busId);
+      if (!bus) return;
+      const route = ROUTES[bus.routeId];
+
+      // Find the next immediate stop ahead of this bus
+      let soonestStop = null;
+      let minEta = Infinity;
+
+      route.stops.forEach(stopId => {
+        const targetFrac = state.stopProgressMap[bus.routeId][stopId];
+        let diff = targetFrac - bus.progress;
+        if (diff < 0) diff += 1.0;
+        const etaSec = Math.round(diff * route.loopDurationSec);
+        if (etaSec < minEta) {
+          minEta = etaSec;
+          soonestStop = CAMPUS_STOPS.find(s => s.id === stopId);
+        }
+      });
+
+      const badge = document.getElementById('popupBusBadge');
+      badge.textContent = bus.id;
+      badge.className = `px-2 py-0.5 rounded-md text-xs font-extrabold uppercase tracking-wide text-white ${route.bgClass}`;
+
+      document.getElementById('popupBusRouteName').textContent = route.name;
+      document.getElementById('popupNextStop').textContent = soonestStop ? soonestStop.name : 'Campus Loop';
+      document.getElementById('popupEta').textContent = formatCountdown(minEta);
+
+      const loadText = document.getElementById('popupLoadText');
+      const loadBar = document.getElementById('popupLoadBar');
+      loadBar.style.width = `${bus.capacity}%`;
+
+      if (bus.capacity > 75) {
+        loadText.textContent = `${bus.capacity}% (Standing Room)`;
+        loadText.className = 'font-semibold text-rose-400';
+        loadBar.className = 'h-full bg-rose-500 rounded-full transition-all duration-300';
+      } else if (bus.capacity > 50) {
+        loadText.textContent = `${bus.capacity}% (Moderate)`;
+        loadText.className = 'font-semibold text-amber-400';
+        loadBar.className = 'h-full bg-amber-400 rounded-full transition-all duration-300';
+      } else {
+        loadText.textContent = `${bus.capacity}% (Seats Open)`;
+        loadText.className = 'font-semibold text-emerald-400';
+        loadBar.className = 'h-full bg-emerald-400 rounded-full transition-all duration-300';
+      }
+    }
+
+    /**
+     * Simulation Controls (Pause/Play & 1x / 10x Speed Toggle)
+     */
+    function toggleSimulation() {
+      state.isPaused = !state.isPaused;
+      const icon = document.getElementById('pausePlayIcon');
+      const text = document.getElementById('pausePlayText');
+      if (state.isPaused) {
+        icon.className = 'fa-solid fa-play text-emerald-400';
+        text.textContent = 'Paused';
+      } else {
+        icon.className = 'fa-solid fa-pause text-amber-400';
+        text.textContent = 'Live';
+      }
+    }
+
+    function setSimSpeed(speed) {
+      state.simSpeed = speed;
+      if (state.isPaused) toggleSimulation();
+
+      const btn1 = document.getElementById('btnSpeed1x');
+      const btn10 = document.getElementById('btnSpeed10x');
+      if (speed === 1) {
+        btn1.className = 'px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition bg-blue-600 text-white shadow-sm';
+        btn10.className = 'px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition text-slate-400 hover:text-white';
+      } else {
+        btn10.className = 'px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition bg-amber-500 text-slate-950 shadow-sm';
+        btn1.className = 'px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition text-slate-400 hover:text-white';
+      }
+    }
+
+    /**
+     * Simulated "Find Nearest Stop" based on user pin at (515, 292)
+     */
+    function findNearestStop() {
+      const userX = 515;
+      const userY = 292;
+      let nearest = CAMPUS_STOPS[0];
+      let minDistance = Infinity;
+
+      CAMPUS_STOPS.forEach(stop => {
+        const d = Math.hypot(stop.x - userX, stop.y - userY);
+        if (d < minDistance) {
+          minDistance = d;
+          nearest = stop;
+        }
+      });
+
+      selectRoute('all');
+      selectStop(nearest.id);
+      switchSideTab('arrivals');
+      showToast('Nearest Stop Located', `${nearest.name} is just a ${nearest.walkMins}-minute walk from Student Union.`);
+    }
+
+    function showToast(title, message) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastMessage').textContent = message;
+
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      clearTimeout(window.toastTimeout);
+      window.toastTimeout = setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 3500);
+    }
+
+    function updateLiveClock() {
+      const now = new Date();
+      document.getElementById('liveClock').textContent = now.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+  </script>
+</body>
+</html>
